@@ -1,0 +1,820 @@
+#+TITLE: Emacs Configurations for Windowns
+#+STARTUP: show2levels
+#+OPTIONS: broken-links:t
+#+OPTIONS: tags:nil
+* 启动优化
+#+begin_src emacs-lisp :tangle ~/.emacs.d/early-init.el
+  ;;; early-init.el -- which run before init.el
+  ;;; Commentary:
+  ;; Runs before package and UI initializetion happens
+  ;;; Code:
+  (unless (>= emacs-major-version 29)
+    (error "ONLY EMACS-29+ IS SUPPORTED"))
+  (setq gc-cons-threshold most-positive-fixnum)
+  (add-hook 'after-init-hook #'(lambda () (setq gc-cons-threshold 800000)))
+
+  (setq inhibit-automatic-native-compilation t)
+
+  (setq package-enable-at-startup nil)
+
+  ;;clean GUI
+  (push '(scroll-bar-mode . nil) default-frame-alist)
+  (push '(tool-bar-mode . nil) default-frame-alist)
+  (when (fboundp 'tool-bar-mode) (tool-bar-mode -1))
+  (when (fboundp 'scroll-bar-mode) (scroll-bar-mode -1))
+
+  (provide 'early-init)
+
+  ;;; early-init.el ends here
+  ;; Local Variables:
+  ;; byte-compile-warnings: (not free-vars)
+  ;; END:
+#+end_src
+* 函数定义
+#+begin_src emacs-lisp :tangle ~/.emacs.d/lisp/init-func.el
+  ;;; init-func.el --- provides some useful functions.
+
+  ;;; Commentary:
+
+  ;;; Code:
+
+  (defun sms/display-startup-time()
+    "统计启动时间."
+    (message "Emacs loaded in %s with %d garbage collections."
+       (format "%.2f seconds" (float-time (time-subtract after-init-time before-init-time)))
+       gcs-done))
+  (add-hook 'emacs-startup-hook #'sms/display-startup-time)
+
+  (defun dark-theme ()
+    "启动暗黑主题."
+    (interactive)
+    (dolist (theme custom-enabled-themes)
+      (disable-theme theme))
+    (load-theme 'modus-vivendi t))
+
+  (defun light-theme ()
+    "启动光明主题."
+    (interactive)
+    (dolist (theme custom-enabled-themes)
+      (disable-theme theme))
+    (load-theme 'modus-operandi t))
+
+  (defun sms/edit-init-file ()
+    "打开~/.emacs文件"
+    (interactive)
+    (find-file user-init-file))
+
+  (defun sms/edit-custom-file ()
+    "打开~/.emacs.d/custom.el文件"
+    (interactive)
+    (find-file custom-file))
+
+  (defun lawrence/org-custom-id-get (&optional pom create prefix)
+    "Get the CUSTOM_ID property of the entry at point-or-marker POM.
+     if POM is nil, refer to the entry at point. If the entry does not have a
+     CUSTOM_ID, the function return nil. However, When CREATE is non-nil, create a
+     CUSTOM_ID if not is present already, PREFIX will be passed through to `org-id-new', In any case,
+     the CUSTOM_ID of the entry is returned."
+    (interactive)
+    (org-with-point-at pom
+      (let ((id (org-entry-get nil "CUSTOM_ID")))
+        (cond
+         ((and id (stringp id) (string-match "\\S-" id)) id)
+         (create
+          (setq id (org-id-new (concat prefix "h")))
+          (org-entry-put pom "CUSTOM_ID" id)
+          (org-id-add-location id (buffer-file-name (buffer-base-buffer)))
+          id)))))
+
+  (defun lawrence/org-add-ids-to-headlines-in-file ()
+    "Add CUSTOM_ID properties to all headlines in current file which do not already have one.
+   Only add ids if the `auto-id' option is `t', ie. #+OPTIONS: auto-id:t"
+    (interactive)
+    (save-excursion
+      (widen)
+      (goto-char (point-min))
+      (when (re-search-forward "^#\\+OPTIONS:.*auto-id:t" 10000 t)
+        (org-map-entries (lambda () (lawrence/org-custom-id-get (point) 'create))))))
+
+  (defun lawrence/async-process (command &optional name filter)
+    "Start an async process by running the COMMAND string with bash. Return the process object for it.
+      NAME is name for process. Default is \"async-process\".
+      FILTER is function that runs after the process is finished, its args should be \"(process output)\".
+    Default is just message the output. "
+    (make-process
+     :command `("bash" "-c" , command)
+     :name (if name name
+             "async-process")
+     :filter (if filter filter
+               (lambda (process output) (message (s-trim output))))))
+
+  (defun lawrence/tangle-config ()
+    "Export code blocks from the literate config file asynchronously."
+    (interactive)
+    (let ((command (if (file-directory-p "c:/Program Files/Emacs/emacs-29.3_2/bin/emacs.exe")
+                       "emacs %s --batch --eval '(org-babel-tangle nil \"%s\")'"
+                     "emacs %s --batch --eval '(org-babel-tangle nil \"%s\")'")))
+      (lawrence/async-process
+       (format command
+               (expand-file-name "emacs_config_for_window.org")
+               (expand-file-name "init.el" user-emacs-directory))
+       "tangle-process")))
+
+  (provide 'init-func)
+  ;;;init-func.el ends here
+#+end_src
+* 插件配置
+:PROPERTIES:
+:header-args: :emacs-lisp :tangle ~/.emacs.d/lisp/init-plugins.el
+:END:
+#+begin_src emacs-lisp
+  ;;; init-plugins.el --- The entry of emacs config -*- lexical-binding: t -*-
+  ;; Author:
+
+  ;;; Commentary:
+  ;;; Code:
+
+#+end_src
+** fido-mode
+`fido-mode' is provided by icomplete.el
+#+begin_src emacs-lisp
+  (use-package icomplete
+    :hook (after-init . fido-mode)
+    :config (setq completions-detailed t))
+#+end_src
+** hl-line
+;; Highlight Current Line
+#+begin_src emacs-lisp
+  (use-package hl-line
+    :when (display-graphic-p)
+    :hook (prog-mode . hl-line-mode))
+#+end_src
+** org-mode
+#+begin_src emacs-lisp
+  (use-package org
+    :hook (org-mode . org-num-mode)
+    :config
+    (setq org-hide-leading-stars t
+          org-hide-emphasis-markers t
+          org-startup-indented t
+          org-log-done t
+          org-catch-invisible-edits 'show
+          org-fast-tag-selection-single-key 'expert
+          org-tags-column 80
+          org-export-with-smart-qutoes t
+          org-latex-pdf-process '("tectonic -Z shell-escape %f"))
+    (progn
+      (setq org-src-fontify-natively t)
+      (setq org-startup-folded nil)
+      (setq org-return-follows-link t)
+      (setq org-startup-truncated nil))
+    ;;设置任务流程
+    (setq org-todo-keywords
+          '((sequence "TODO(t!)" "DOING(p!)" "BLOCKED(b!)" "|" "DONE(d!)" "CANCELED(a@/!)")))
+    ;;设置任务样式
+    (global-set-key (kbd "C-c c") 'org-capture)
+    (setq org-todo-keyword-faces
+          '(("TODO"     . (:foreground "red"    :weight bold))
+            ("BLOCKED"  . (:foreground "red"    :weight bold))
+            ("DOING"    . (:foreground "orange" :weight bold))
+            ("DONE"     . (:foreground "green"  :weight bold))
+            ("CANCELED" . (:background "gray"   :foreground "black"))))
+    (setq org-capture-templates '(("p" "plan" entry (file+headline "~/OneDrive/notes.org" "临时任务")  "* TODO %? \n  DEADLINE: %^t\n  %i\n  %a")
+                                  ("i" "idea" entry (file+headline "~/OneDrive/ideas.org" "备忘录") "* TODO %i%? \n %U")
+                                  ("j" "journal" entry (file+datetree "~/OneDrive/journal.org") "* %U - %^{heading}\n  %?")))
+
+    ;;设置org-agenda的快捷键
+    (global-set-key (kbd "C-c a") 'org-agenda)
+    ;;设置自己的日程文件
+    (setq org-agenda-files '("~/OneDrive/notes.org" "~/OneDrive/ideas.org")))
+
+  ;; Pulse the cursor line
+  (dolist (cmd '(recenter-top-bottom other-window))
+    (advice-add cmd :after (lambda (&rest _) (pulse-momentary-highlight-one-line))))
+
+  (use-package org-bullets
+    :ensure t
+    :hook (org-mode . org-bullets-mode))
+
+  (use-package org-roam
+    ;;:straight t
+    :ensure t
+    :custom
+    (org-roam-directory (file-truename "~/OneDrive/"))
+    :bind
+    (("C-c n l" . org-roam-buffer-toggle)
+     ("C-c n f" . org-roam-node-find)
+     ("C-c n g" . org-roam-graph)
+     ("C-c n i" . org-roam-node-insert)
+     ("C-c n c" . org-roam-capture)
+     ("C-c n j" . org-roam-dailies-capture-today))
+    :config
+    (setq org-roam-node-display-template (concat "${title:*} " (propertize "${tags:10}" 'face 'org-tag)))
+    (org-roam-db-autosync-mode)
+    (require 'org-roam-protocol))
+
+  (use-package org-present
+    :ensure t
+    :init
+    (add-hook 'org-present-mode-hook
+              (lambda ()
+                (org-present-big)
+                (org-display-inline-images)
+                (org-present-hide-cursor)
+                (org-present-read-only)))
+    :config
+    (define-key org-present-mode-keymap (kbd "C-c C-n") 'org-present-next)
+    (define-key org-present-mode-keymap (kbd "C-c C-p") 'org-present-prev))
+#+end_src
+** Paren Mode
+#+begin_src emacs-lisp
+  (use-package paren
+    :config
+    (setq show-paren-when-point-in-periphery t
+          show-paren-when-point-inside-paren t
+          show-paren-style 'mixed))
+#+end_src
+** show the recent file
+#+begin_src emacs-lisp
+  (use-package recentf
+    :hook (after-init . recentf-mode)
+    ;; recentf-open since v29.1, recentf-open-files since v22
+    :bind (("C-c r" . #'recentf-open)))
+#+end_src
+** company
+Settings for company, auto-complete only for coding.
+#+begin_src emacs-lisp
+  (use-package company
+    :ensure t
+    :defines
+    (company-dabbrev-ignore-case company-dabbrev-downcase)
+    :hook
+    (prog-mode . company-mode)
+    (org-mode  . company-mode)
+    :config
+    (setq company-minimum-prefix-length 1)
+    (setq company-idle-delay 0.2))
+#+end_src
+** exec-path-from-shell
+Settings for exec-path-from-shell, fix the PATH environment variable issue
+#+begin_src emacs-lisp
+  (use-package exec-path-from-shell
+    :ensure t
+    :when (or (memq window-system '(mac ns x))
+              (unless sms-os-win
+                (daemonp)))
+    :init
+    (exec-path-from-shell-initialize))
+#+end_src
+** formatter for almost languages
+great for programmers
+#+begin_src emacs-lisp
+  (use-package format-all
+    :ensure t
+    ;; enable format on save with format-all-mode
+    ;; :hook ((prog-mode . format-all-mode)
+    ;; 	   (format-all-mode . format-all-ensure-formatter))
+    ;; bind a shortcut to manual format
+    :bind
+    ("C-c f" . #'format-all-region-or-buffer))
+#+end_src
+** iedit
+iedit - edit same text in one buffer or region
+#+begin_src emacs-lisp
+  (use-package iedit
+    :ensure t
+    :bind ("C-;" . iedit-mode))
+#+end_src
+** move-dup
+move/copy line or region
+#+begin_src emacs-lisp
+  (use-package move-dup
+    :ensure t
+    :hook (after-init . global-move-dup-mode)
+    :bind (("M-p"   . move-dup-move-lines-up)
+           ("C-M-p" . move-dup-duplicate-up)
+           ("M-n"   . move-dup-move-lines-down)
+           ("C-M-n" . move-dup-duplicate-down)))
+#+end_src
+** which-key
+Settings for which-key - suggest next key
+#+begin_src emacs-lisp
+  (use-package which-key
+    :ensure t
+    :hook
+    (after-init . which-key-mode)
+    :config
+    (setq which-key-idle-delay 0.3))
+#+end_src
+** Flymake
+#+begin_src emacs-lisp
+  (use-package flymake
+    :hook (prog-mode . flymake-mode)
+    :bind (("M-n" . #'flymake-goto-next-error)
+           ("M-p" . #'flymake-goto-prev-error)))
+#+end_src
+** markdown-mode
+Markdown file support
+#+begin_src emacs-lisp
+  (use-package markdown-mode
+    :ensure t
+    :config
+    (setq-default word-wrap t)
+    (autoload 'markdown-mode "markdown-mode" "Major mode for editing Markdown files" t)
+    (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
+    (add-to-list 'auto-mode-alist '("\\.markdown\\'" . markdown-mode)))
+  (use-package markdown-preview-mode
+    :config
+    (setq markdown-preview-stylesheets        '("https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/2.10.0/github-markdown.min.css")))
+#+end_src
+** quickrun
+Run code
+#+begin_src emacs-lisp
+  (use-package quickrun
+    :ensure t
+    :when (derived-mode-p 'prog-mode))
+#+end_src
+** restclient
+HTTP Request
+#+begin_src emacs-lisp
+  (use-package restclient
+    :ensure t
+    :mode (("\\.http\\'" . restclient-mode)))
+#+end_src
+** eglot
+Language Server (eglot - builtin since v29)
+#+begin_src emacs-lisp
+  (use-package eglot
+    :bind
+    ("C-c e f" . eglot-format)
+    :init
+    (advice-add 'eglot-code-action-organize-imports :before #'eglot-format-buffer)
+    (add-hook 'eglot-managed-mode-hook (lambda () (add-hook 'before-save-hook #'eglot-format-buffer)))
+    (add-hook 'prog-mode-hook
+              (lambda () (unless (member major-mode '(emacs-lisp-mode))
+                           (eglot-ensure)))))
+#+end_src
+** treesit
+#+begin_src emacs-lisp
+  (use-package treesit
+    :when
+    (and (fboundp 'treesit-available-p) (treesit-available-p))
+    :mode
+    (("\\(?:Dockerfile\\(?:\\..*\\)?\\|\\.[Dd]ockerfile\\)\\'" . dockerfile-ts-mode)
+     ("\\.go\\'" . go-ts-mode)
+     ("/go\\.mod\\'" . go-mod-ts-mode)
+     ("\\.rs\\'" . rust-ts-mode)
+     ("\\.ts\\'" . typescript-ts-mode)
+     ("\\.y[a]?ml\\'" . yaml-ts-mode))
+    :config
+    (setq treesit-font-lock-level 4)
+    :init
+    (setq major-mode-remap-alist
+          '((sh-mode         . bash-ts-mode)
+            (c-mode          . c-ts-mode)
+            (c++-mode        . c++-ts-mode)
+            (c-or-c++-mode   . c-or-c++-ts-mode)
+            (css-mode        . css-ts-mode)
+            (js-mode         . js-ts-mode)
+            (java-mode       . java-ts-mode)
+            (js-json-mode    . json-ts-mode)
+            (makefile-mode   . cmake-ts-mode)
+            (python-mode     . python-ts-mode)
+            (ruby-mode       . ruby-ts-mode)
+            (conf-toml-mode  . toml-ts-mode)))
+    (setq treesit-language-source-alist
+          '((bash       . ("https://github.com/tree-sitter/tree-sitter-bash"))
+            (c          . ("https://github.com/tree-sitter/tree-sitter-c"))
+            (cpp        . ("https://github.com/tree-sitter/tree-sitter-cpp"))
+            (css        . ("https://github.com/tree-sitter/tree-sitter-css"))
+            (cmake      . ("https://github.com/uyha/tree-sitter-cmake"))
+            (csharp     . ("https://github.com/tree-sitter/tree-sitter-c-sharp.git"))
+            (dockerfile . ("https://github.com/camdencheek/tree-sitter-dockerfile"))
+            (elisp      . ("https://github.com/Wilfred/tree-sitter-elisp"))
+            (go         . ("https://github.com/tree-sitter/tree-sitter-go"))
+            (gomod      . ("https://github.com/camdencheek/tree-sitter-go-mod.git"))
+            (html       . ("https://github.com/tree-sitter/tree-sitter-html"))
+            (java       . ("https://github.com/tree-sitter/tree-sitter-java.git"))
+            (javascript . ("https://github.com/tree-sitter/tree-sitter-javascript"))
+            (json       . ("https://github.com/tree-sitter/tree-sitter-json"))
+            (lua        . ("https://github.com/Azganoth/tree-sitter-lua"))
+            (make       . ("https://github.com/alemuller/tree-sitter-make"))
+            (markdown   . ("https://github.com/MDeiml/tree-sitter-markdown" nil "tree-sitter-markdown/src"))
+            (ocaml      . ("https://github.com/tree-sitter/tree-sitter-ocaml" nil "ocaml/src"))
+            (org        . ("https://github.com/milisims/tree-sitter-org"))
+            (python     . ("https://github.com/tree-sitter/tree-sitter-python"))
+            (php        . ("https://github.com/tree-sitter/tree-sitter-php"))
+            (typescript . ("https://github.com/tree-sitter/tree-sitter-typescript" nil "typescript/src"))
+            (tsx        . ("https://github.com/tree-sitter/tree-sitter-typescript" nil "tsx/src"))
+            (ruby       . ("https://github.com/tree-sitter/tree-sitter-ruby"))
+            (rust       . ("https://github.com/tree-sitter/tree-sitter-rust"))
+            (sql        . ("https://github.com/m-novikov/tree-sitter-sql"))
+            (vue        . ("https://github.com/merico-dev/tree-sitter-vue"))
+            (yaml       . ("https://github.com/ikatyang/tree-sitter-yaml"))
+            (toml       . ("https://github.com/tree-sitter/tree-sitter-toml"))
+            (zig        . ("https://github.com/GrayJack/tree-sitter-zig")))))
+
+  (use-package tree-sitter-langs
+    :ensure t
+    :after tree-sitter)
+  #+end_src
+** ivy
+#+begin_src emacs-lisp
+  (use-package ivy
+    :defer 1
+    :demand
+    :hook (after-init . ivy-mode)
+    :config
+    (ivy-mode 1)
+    (setq ivy-use-virtual-buffers t
+          ivy-initial-inputs-alist nil
+          ivy-count-format "%d/%d "
+          enable-recursive-minibuffers t
+          ivy-re-builders-alist '((t . ivy--regex-ignore-order)))
+    (ivy-posframe-mode 1))
+
+  (use-package counsel
+    :after (ivy)
+    :bind (("M-x"   . counsel-M-x)
+           ("C-c f" . counsel-find-file)
+           ("C-c r" . counsel-recentf)
+           ("C-c g" . counsel-git)))
+
+  (use-package swiper
+    :after ivy
+    :bind (("C-s" . swiper)
+           ("C-r" . swiper-isearch-backward))
+    :config (setq swiper-action-recenter t
+                  swiper-include-line-number-in-search t))
+
+  ;;窗口管理之MiniBuffer交互优化
+  (use-package ivy-posframe
+    :init
+    (setq ivy-posframe-display-functions-alist
+          '((swiper . ivy-posframe-display-at-frame-center)
+            (complete-symbol . ivy-posframe-display-at-point)
+            (counsel-M-x . ivy-posframe-display-at-frame-center)
+            (counsel-find-file . ivy-posframe-display-at-frame-center)
+            (ivy-switch-buffer . ivy-posframe-display-at-frame-center)
+            (t . ivy-posframe-display-at-frame-center))))
+#+end_src
+** yasnippet
+Settings for yasnippet
+#+begin_src emacs-lisp
+  (use-package yasnippet
+    :diminish yas-minor-mode
+    :init (yas-global-mode)
+    :bind (("C-o" . yas-expand))
+    :config (use-package yasnippet-snippets :after yasnippet))
+#+end_src
+** rainbow-delimiters
+Show the delimiters as rainbow color
+#+begin_src emacs-lisp
+  (use-package rainbow-delimiters
+    :hook (prog-mode . rainbow-delimiters-mode))
+#+end_src
+** magit
+#+begin_src emacs-lisp
+  (use-package magit
+    :ensure t
+    :bind
+    ("C-x g" . magit-status)
+    :config
+    (use-package evil-magit)
+    (use-package with-editor)
+    (setq magit-push-always-verify nil)
+    (setq git-commit-summary-max-length 50)
+    (with-eval-after-load 'magit-remote
+      (magit-define-popup-action 'magit-push-popup ?P
+                                 'magit-push-implicity--desc
+                                 'magit-push-implicity ?p t))
+    (add-hook 'with-editor-mode-hook 'evil-insert-state))
+#+end_src
+** elfeed
+#+begin_src emacs-lisp
+  (use-package elfeed
+    :ensure t
+    :config (elfeed-set-max-connections 32)
+    )
+
+  (use-package elfeed-org
+    :ensure t
+    :config
+    (progn
+      (elfeed-org)
+      (setq rmh-elfeed-org-files (list "~/.emacs.d/feeds.org"))))
+
+  (use-package elfeed-goodies
+    :ensure t
+    :config (elfeed-goodies/setup))
+
+  ;; Use 'o' to browse the entry in a web browser
+  ;;(add-to-list 'evil-emacs-state-modes 'elfeed-show-mode)
+#+end_src
+** htmlize
+#+begin_src emacs-lisp
+  (use-package htmlize
+    :ensure t)
+#+end_src
+** 画图工具
+#+begin_src emacs-lisp
+  (use-package graphviz-dot-mode
+    :ensure t)
+
+  ;;(use-package evil
+  ;;  :ensure nil
+  ;;  :config
+  ;; (evil-mode nil))
+
+  (use-package plantuml-mode
+    :ensure t
+    :config
+    (setq plantuml-jar-path "~/OneDrive/Documents/Downloads/plantuml.jar")
+    (add-to-list 'auto-mode-alist '("\\.plantuml\\'" . plantuml-mode))
+    (add-to-list 'org-src-lang-modes '("plantuml" . plantuml))
+    (org-babel-do-load-languages 'org-babel-load-languages '((plantuml . t))))
+#+end_src
+** 主题
+#+begin_src emacs-lisp
+  (use-package timu-caribbean-theme
+    :ensure t
+    :config
+    (load-theme 'timu-caribbean t))
+
+  (use-package zenburn-theme
+    :ensure t)
+#+end_src
+** dashboard
+#+begin_src emacs-lisp
+  (use-package dashboard
+    :ensure t
+    :config
+    ;; Set the title
+    (setq dashboard-banner-logo-title "Welcome to Emacs Dashboard")
+    ;; Set the banner
+    (setq dashboard-startup-banner 'official)
+    ;; Value can be:
+    ;;  - 'official which displays the official emacs logo.
+    ;;  - 'logo which displays an alternative emacs logo.
+    ;;  - an integer which displays one of the text banners
+    ;;    (see dashboard-banners-directory files).
+    ;;  - a string that specifies a path for a custom banner
+    ;;    currently supported types are gif/image/text/xbm.
+    ;;  - a cons of 2 strings which specifies the path of an image to use
+    ;;    and other path of a text file to use if image isn't supported.
+    ;;    ("path/to/image/file/image.png" . "path/to/text/file/text.txt").
+    ;;  - a list that can display an random banner,
+    ;;    supported values are: string (filepath), 'official, 'logo and integers.
+
+    ;; Content is not centered by default. To center, set
+    (setq dashboard-center-content t)
+    ;; vertically center content
+    (setq dashboard-vertically-center-content t)
+
+    ;; To disable shortcut "jump" indicators for each section, set
+    (setq dashboard-show-shortcuts nil)
+    (setq dashboard-items '((recents . 5)
+                            (bookmarks . 5)
+                            (agenda    . 5)
+                            (projects . 5)))
+    (setq dashboard-navigation-cycle t)
+    (dashboard-setup-startup-hook))
+
+
+  (add-to-list 'dashboard-items '(agenda) t)
+  (setq dashboard-week-agenda t)
+  (setq dashboard-filter-agenda-entry 'dashboard-no-filter-agenda)
+
+#+end_src
+** 跳转(窗口内与窗口间)
+#+begin_src emacs-lisp
+  (use-package avy
+    :ensure t
+    :bind ("C-c j" . avy-goto-char)
+    :config
+    (avy-setup-default))
+
+  (use-package ace-window
+    :ensure t
+    :config
+    (global-set-key (kbd "C-x o") 'ace-window))
+#+end_src
+** projectile
+#+begin_src emacs-lisp
+  (use-package projectile
+    :ensure t
+    :init
+    (projectile-mode t)
+    :custom
+    (projectile-globally-ignored-files '("*.log" ".tmp"))
+    (projectile-globally-ignored-directories '(".git" ".svn" "node_modules"))
+    :bind ("C-c p" . projectile-command-map)
+    :config
+    (setq projectile-completion-system 'ivy)
+    (setq projectile-generic-command "rg --files --hidden")
+    (setq projectile-known-projects-file "~/.emacs.d/projectile-bookmarks.eld")
+    (setq projetile-switch-project-action #'magit-status))
+
+  (use-package counsel-projectile
+    :ensure t
+    :after projectile
+    :config
+    (counsel-projectile-mode t))
+#+end_src
+** 图标
+#+begin_src emacs-lisp
+  (use-package all-the-icons
+    :ensure t
+    :config
+    (setq inhibit-compacting-font-caches t)
+    (when (member "all-the-icons" (font-family-list))
+      (set-fontset-font t 'unicode "all-the-icons" nil 'prepend))
+    (setq all-the-icons-scale-factor 1.0))
+#+end_src
+** 层次折叠
+#+begin_src emacs-lisp
+  (use-package folding
+    :ensure t
+    :config
+    (if (load "folding" 'nomessage 'noerror)
+        (folding-mode-add-find-file-hook))
+    (folding-add-to-marks-list 'verilog-mode      "//{{{" "//}}}")
+    (folding-add-to-marks-list 'c-mode            "//{{{" "//}}}")
+    (folding-add-to-marks-list 'latex-mode        "%%{{{" "%%}}}")
+    (folding-add-to-marks-list 'lisp-mode         ";;{{{" ";;}}}")
+    (folding-add-to-marks-list 'shell-script-mode "##{{{" "##}}}")
+    (folding-add-to-marks-list 'python-mode       "#{{{"  "#}}}")
+    (defalias 'fold-mode 'folding-mode)
+    (defalias 'folding-region  'folding-fold-region)
+    (defalias 'fold-in   'folding-shift-in)
+    (defalias 'fold-out  'folding-shift-out)
+    (defalias 'fold-hide-all 'folding-whole-buffer)
+    (defalias 'fold-show-all 'folding-open-buffer)
+    (defalias 'fold-hide 'folding-hide-current-entry)
+    (defalias 'fold-show 'folding-show-current-entry))
+#+end_src
+** 修复中文字体
+#+begin_src emacs-lisp
+  (use-package cnfonts
+    :ensure t
+    :config
+    (cnfonts-mode 1)
+    (define-key cnfonts-mode-map (kbd "C--") #'cnfonts-decrease-fontsize)
+    (define-key cnfonts-mode-map (kbd "C-=") #'cnfonts-increase-fontsize))
+#+end_src
+** 插件配置结束
+#+begin_src emacs-lisp
+  (provide 'init-plugins)
+  ;;; init-plugins.el ends here
+#+end_src
+
+* 主配置入口
+:PROPERTIES:
+:header-args: :emacs-lisp :tangle ~/.emacs.d/init.el
+:END:
+** 基本配置
+#+begin_src emacs-lisp 
+  ;;; init.el --- The entry of emacs config -*- lexical-binding: t -*-
+  ;; Author:
+
+  ;;; Commentary:
+
+  ;;; Code:
+  (defvar sms-os-win (memq system-type '(ms-dos windows-nt cygwin)))
+  (defvar sms-os-mac (eq system-type 'darwin))
+  (defvar sms-fonts-default '("UbuntuMono NF" "Terminus" "Source Code Pro"))
+  (defvar sms-fonts-unicode '("Segoe UI Symbol" "Symbola" "Symbol"))
+  (defvar sms-fonts-emoji '("Emoji" "Apple Color Emoji"))
+  (defvar sms-fonts-cjk '("KaiTi" "STKaiTi" "WenQuanYi Micro Hei"))
+
+  (defalias 'list-buffers 'ibuffer)
+
+  ; autoload
+  (defun sms-find-font(custom-fonts default-fonts)
+    "从输入参数里CUSTOM-FONTS与DEFAULT-FONTS找到第一个已被安装的字体."
+
+    (catch 'font
+      (dolist (f (append custom-fonts default-fonts))
+        (when (find-font (font-spec :family f))
+    (throw 'font f)))))
+
+  (defun sms-setup-font(&rest args)
+    "从输入参数ARGS设置字体，可接受的输入包含 :default :unicode :emoji :cjk."
+    (interactive)
+    (when (display-graphic-p)
+      (let ((f-def (sms-find-font (plist-get args :default) sms-fonts-default))
+      (f-uni (sms-find-font (plist-get args :unicode) sms-fonts-unicode))
+      (f-emo (sms-find-font (plist-get args :emoji)   sms-fonts-emoji))
+      (f-cjk (sms-find-font (plist-get args :cjk) sms-fonts-cjk)))
+        (set-face-attribute 'default nil :family f-def)
+        (setq face-font-rescale-alist `((, f-cjk . 1.2)))
+        (dolist (pair `((unicode  . ,f-uni)
+            (emoji    . ,f-emo)
+            (kana     . ,f-cjk)
+            (han      . ,f-cjk)
+            (bopomofo . ,f-cjk)
+            (cjk-misc . ,f-cjk)))
+          (set-fontset-font t (car pair) (font-spec :family (cdr pair)) nil 'prepend)))))
+
+  (add-hook 'after-init-hook #'sms-setup-font)
+  (when (daemonp)
+    (add-hook 'after-make-frame-functions
+        (lambda (frame)
+          (with-selected-frame frame (sms-setup-font)))))
+
+  (add-to-list 'load-path (concat user-emacs-directory "lisp"))
+  (require 'init-func)
+
+  (use-package package
+    :hook after-init-hook
+    :config
+    (add-to-list 'package-archives '("melpa" . "http://mirrors.tuna.tsinghua.edu.cn/elpa/melpa/"))
+    (unless (bound-and-true-p package--initialized)
+      (package-initialize)))
+
+  (setq-default indent-tabs-mode nil)
+  (setq-default tab-width 2)
+  (setq indent-line-function 'insert-tab)
+  (setq use-package-enable-imenu-support t
+        use-package-expand-minimally t)
+
+
+  ;; Emacs build-in packages
+  (setq-default auto-window-vscroll nil
+          default-directory "~"
+          default-text-properties '(line-space 0.2 line-height 1)
+          frame-title-format "%b"
+          help-window-select t
+          initial-major-mode 'fundamental-mode
+          inhibit-startup-screen t
+          isearch-allow-motion t
+          isearch-lazy-count t
+          kill-whole-line t
+          mode-line-compact t
+          make-backup-files nil	; disable backup file
+          read-process-output-max (* 4 1024 1024)
+          require-final-newline t
+          scroll-conservatively 1000
+          show-trailing-whitespace t
+          system-time-locale "C"
+          use-short-answers t)
+
+
+  ;; auto-revert
+  (add-hook 'after-init-hook 'global-auto-revert-mode)
+
+  ;; Delete Behavior
+  ;; `delete-selection-mode' is provided by delsel.el (builtin)
+  (add-hook 'after-init-hook 'delete-selection-mode)
+
+  ;; visual-line-mode
+  (add-hook 'after-init-hook 'global-visual-line-mode)
+
+  ;; pixel-scroll-precise-mode
+  (add-hook 'after-init-hook 'pixel-scroll-precision-mode)
+
+  (require 'init-plugins)
+
+  ;;Configs for OS
+  ;; Special configs for MS-Windows
+  (when (and sms-os-win
+             (boundp 'w32-get-true-file-attributes))
+    (setq w32-get-true-file-attributes nil
+          w32-pipe-read-delay 0
+          w32-pipe-buffer-size (* 64 1024)))
+
+  ;; solve the Chinese paste issue
+  ;; let Emacs auto-guess the selection coding according to the Windows/system settings
+  (prefer-coding-system 'utf-8)
+  (setq locale-coding-system 'utf-8)
+  (unless sms-os-win
+    (set-selection-coding-system 'utf-8))
+
+  ;; Configs for programming languages
+  (add-hook 'prog-mode-hook (lambda () (setq-local column-number-mode t)))
+  (add-hook 'prog-mode-hook 'display-line-numbers-mode)
+  (add-hook 'prog-mode-hook 'electric-pair-mode)
+  (add-hook 'prog-mode-hook 'flymake-mode)
+  (add-hook 'prog-mode-hook 'hs-minor-mode)
+  (add-hook 'prog-mode-hook 'prettify-symbols-mode)
+  (add-hook 'prog-mode-hook 'which-function-mode)
+#+end_src
+** custom-file
+#+begin_src emacs-lisp
+  (setq custom-file (locate-user-emacs-file "custom.el"))
+  (when (file-exists-p custom-file)
+    (load custom-file))
+#+end_src
+** 主配置结束
+#+begin_src emacs-lisp
+  (provide 'init)
+  ;;; init.el ends here
+  ;; Local Variables:
+  ;; coding: utf-8
+  ;; byte-compile-warnings: (not unresolved obsolete)
+  ;; Ends:
+#+end_src
+* 刷新文档ID
+# Local Variables:
+# eval: (add-hook 'after-save-hook (lambda () (progn (lawrence/org-add-id-to-headlines-in-file) (lawrence/tangle-config))) nil t)
+# End:
